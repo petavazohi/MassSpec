@@ -30,6 +30,7 @@ class RawFile(object):  # need a better name
         self._nspectra = ms_file.GetNumSpectra()
         self._dt = (ms_file.GetEndTime() - ms_file.GetStartTime()) / self._nspectra
         ms_file.Close()
+        self.data = np.array(self.data)
         self.has_error=False
 
     @property
@@ -49,7 +50,7 @@ class RawFile(object):  # need a better name
                 x = np.linspace(self.data[ispectrum][:, 0].min(), self.data[ispectrum][:, 0].max(), self.data[ispectrum].shape[0]*factor)
                 y = self.functions[ispectrum](x)
                 self.interpolated_data.append(np.array([x, y]).T)
-
+        self.interpolated_data = np.array(self.interpolated_data)
                 
     def get_ratio(self, mass_1, mass_2, spectrum_number):
         return self.get_intensity(mass_1, spectrum_number)/self.get_intensity(mass_2, spectrum_number)
@@ -57,15 +58,19 @@ class RawFile(object):  # need a better name
     def get_intensity(self, mass, spectrum_number):
         return self.functions[spectrum_number](mass)
     
-    def plot(self):
+    def plot(self, interpolate=True):
         plt.figure(figsize=(13, 9))
+        if interpolate:
+            data = self.interpolated_data
+        else :
+            data = self.data
         for ispectrum in range(self.nspectra):
             plt.plot(
-                self.data[ispectrum][:, 0],
-                self.data[ispectrum][:, 1],
+                data[ispectrum][:, 0],
+                data[ispectrum][:, 1],
                 label="{}".format(ispectrum + 1),
             )
-        plt.xlim(self.data[ispectrum][:, 0].min(), self.data[ispectrum][:, 0].max())
+        plt.xlim(data[:, :, 0].min(), data[:, :, 0].max())
         plt.ylim(0,)
         plt.legend()
         plt.show()
@@ -73,3 +78,5 @@ class RawFile(object):  # need a better name
     @property
     def ndata(self):
         return self.data[0].shape[0]
+    
+    

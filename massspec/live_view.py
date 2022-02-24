@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 from matplotlib.animation import Animation, FuncAnimation
 from pymsfilereader import MSFileReader
 import matplotlib.pylab as plt
@@ -13,7 +12,16 @@ from .raw_file import RawFile
 colors = ['red', 'blue', 'green']
 
 class LiveView(object):
-    def __init__(self, path=".", only_new=True, delay=20, run=True, mass_1=None, mass_2=None, spectrum_number=None, nrow=4, ncol=4):
+    def __init__(self, path=".", 
+                 only_new=True, 
+                 delay=20, 
+                 run=True, 
+                 ration=False,
+                 mass_1=None, 
+                 mass_2=None, 
+                 spectrum_number=None, 
+                 nrow=4,
+                 ncol=4):
         plt.ion()
         self.path = Path(path)
         self.files = []
