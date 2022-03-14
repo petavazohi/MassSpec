@@ -28,6 +28,8 @@ class RawFile(object):  # need a better name
         for ispectrum in range(1, ms_file.GetNumSpectra() + 1):
             self.data.append(np.array(ms_file.GetMassListFromScanNum(ispectrum)[0]).T)
         self._nspectra = ms_file.GetNumSpectra()
+        self.average_spectrum = np.array(ms_file.GetAveragedMassSpectrum(
+            list(range(1,self._nspectra+1)))[0]).T
         self._dt = (ms_file.GetEndTime() - ms_file.GetStartTime()) / self._nspectra
         ms_file.Close()
         self.data = np.array(self.data)
