@@ -30,6 +30,28 @@ app.layout = html.Div(
         ])
 )
 
+
+
+
+
+@app.callback(Output('live-update-graph', 'figure'),
+            Input('interval-component', 'n_intervals'))
+def update_graph_live(n):
+    to_analyze = check()
+    if len(to_analyze) != 0:
+        for _, ifile in enumerate(to_analyze):
+            if ifile != "error":
+                x = files[count].data_avg[:, 0]
+                y = [files[count].dt + count * dt]*len(x)
+                z = files[count].data_avg[:, 1]
+                df = {'m/z':x, 'time':y ,"Intensity":z}
+                self.analyzed.append(ifile)
+            self.count += 1                       
+    fig = px.line_3d(df, x="m/z", y="time", z="Intensity")
+    return fig
+
+
+
 class LiveView(object):
     def __init__(self, path=".", 
                 #  only_new=True, 
@@ -67,7 +89,7 @@ class LiveView(object):
         # self.animation = Animation(self.fig, self.run, blit=True)
         # if run:
         # self.run()
-        app.run_server()
+        self.
 
         
     def run(self):
@@ -144,18 +166,3 @@ class LiveView(object):
         self.fig.canvas.flush_events()
         # plt.close(self.fig)
 
-    @app.callback(Output('live-update-graph', 'figure'),
-                Input('interval-component', 'n_intervals'))
-    def update_graph_live(n, self):
-        to_analyze = self.check()
-        if len(to_analyze) != 0:
-            for _, ifile in enumerate(to_analyze):
-                if ifile != "error":
-                    x = self.files[self.count].data_avg[:, 0]
-                    y = [self.files[self.count].dt + self.count * self.dt]*len(x)
-                    z = self.files[self.count].data_avg[:, 1]
-                    df = {'m/z':x, 'time':y ,"Intensity":z}
-                    self.analyzed.append(ifile)
-                self.count += 1
-        fig = px.line_3d(df, x="m/z", y="time", z="Intensity")
-        return fig
