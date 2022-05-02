@@ -8,7 +8,7 @@ import numpy as np
 import os
 import time
 from pathlib import Path
-from .raw_file import RawFile
+from .core.raw_file import RawFile
 import dash
 from dash import dcc, html
 import plotly

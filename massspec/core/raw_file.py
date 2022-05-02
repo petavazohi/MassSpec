@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
-
+import os
 from pymsfilereader import MSFileReader
 import numpy as np
 import matplotlib.pylab as plt
 from scipy.interpolate import interp1d
+import xlsxwriter
+from pathlib import Path
 
 class RawFile(object):  # need a better name
     def __init__(self, filename, interpolation='cubic', factor=2):
-        self.filename = filename
+        self.filename = Path(filename)
         self.data = []
+        self.data_avg = None
         self.functions = []
         self.interpolated_data = []
         self.has_error=True
@@ -18,7 +21,7 @@ class RawFile(object):  # need a better name
         
     def _get_data(self):
         try:
-            ms_file = MSFileReader(self.filename)
+            ms_file = MSFileReader(self.filename.as_posix())
         except:
             print(f"Can not open {self.filename}")
             return
@@ -100,4 +103,63 @@ class RawFile(object):  # need a better name
     def ndata(self):
         return self.data[0].shape[0]
     
+    def to_excel(self,
+                output_path="data.xlsx", 
+                average=True):
+        with xlsxwriter.Workbook(output_path) as workbook:
+            sheet_name = f"Avg spectrum"
+            worksheet = workbook.add_worksheet(sheet_name)
+            worksheet.write(0, 0, "m/z")
+            worksheet.write(0, 1, "Intensity")
+            worksheet.write_column(1, 0, self.data_avg[:, 0])
+            worksheet.write_column(1, 1, self.data_avg[:, 1])
+        return 
+
+
+class RawFileCollection(object):
+    def __init__(self, path='.', interpolation='cubic', factor=2):
+        self.path = Path(path)
+        self.interpolation = interpolation
+        self.factor = factor
+        self._data_avg = []
+        self._data = []
+        self.files = []
+        self.parse()
+        
+    def parse(self):
+        files = [self.path.joinpath(x) for x in os.listdir(self.path)]
+        for fname in sorted(files, key=lambda x: x.name):
+            if fname.suffix == '.raw':
+                raw_file = RawFile(fname, interpolation=self.interpolation, factor=self.factor)
+                self.add_file(raw_file)
+                
+    def add_file(self, raw_file):
+        if raw_file.data_avg  is not None:
+            if self._data_avg is None:
+                self._data_avg.append(raw_file.data_avg) 
+                self._data.append(raw_file.data)
+            else:
+                self._data_avg.append(raw_file.data_avg)
+                self._data.append(raw_file.data)
+            self.files.append(raw_file.filename.name)
+                
+    @property    
+    def data_avg(self):
+        return self._data_avg
     
+    @property    
+    def data(self):
+        return self._data
+
+    def to_excel(self,
+                 output_path="data.xlsx"):
+        with xlsxwriter.Workbook(output_path) as workbook:
+            sheet_name = "Avg spectrum"
+            worksheet = workbook.add_worksheet(sheet_name)
+            for iscan, d in enumerate(self.data_avg):
+                worksheet.write(0, iscan*2, f"{self.files[iscan]}")
+                worksheet.write(1, iscan*2, "m/z")
+                worksheet.write(1, iscan*2 + 1, "Intensity")
+                worksheet.write_column(2, iscan*2, d[:, 0])
+                worksheet.write_column(2, iscan*2 + 1, d[:, 1])
+        return
