@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pylab as plt
 from scipy.interpolate import interp1d
 import xlsxwriter
-from .raw_file import RawFile
+from .raw_file import RawFile, RawFileCollection
 from pathlib import Path
 import time
 from watchdog.observers import Observer
@@ -38,53 +38,23 @@ class Handler(FileSystemEventHandler):
   
         elif event.event_type == 'created':
             # Event is created, you can process it now
-            print("Watchdog received created event - % s." % event.src_path.split(os.sep)[-1])
+            # print("Watchdog received created event - % s." % event.src_path.split(os.sep)[-1])
+            print('')
         elif event.event_type == 'modified':
+            past_size = -1
+            while (past_size != os.path.getsize(event.src_path)):
+                past_size = os.path.getsize(event.src_path)
+                time.sleep(1)
             # Event is modified, you can process it now
             print("Watchdog received modified event - % s." % event.src_path.split(os.sep)[-1])
 
-
-
-    def run(self):
-        while True:
-            try:
-                time.sleep(self.delay)
-                to_analyze = self.check()
-                if len(to_analyze) != 0:
-                    for ifile in to_analyze:
-                        if ifile != "error":
-                            self.update(self.count)
-                            self.analyzed.append(ifile)
-                        self.count += 1                
-            except KeyboardInterrupt:
-                print("Stopping now")
-                break
-
-
-    def check(self):
-        dirs = os.listdir(self.path.as_posix())
-        new_files = np.setdiff1d(dirs, self.analyzed)
-        to_analyze = []
-        for ifile in new_files:
-            if len(ifile.split(".")) > 1:
-                if ifile.split(".")[1] == "raw":
-                    raw_file = RawFile(self.path.joinpath(ifile).as_posix())
-                    print(f"Analyzing {ifile}")
-                    if not raw_file.has_error:
-                        to_analyze.append(ifile)
-                        self.files.append(raw_file)
-                        nfiles = len(self.files)
-                        if self.ratio:
-                            irow = (nfiles-1)//self.ncol
-                            icol = (nfiles-1)%self.ncol
-                            self.ratios[irow, icol] = raw_file.get_ratio(self.mass_1, 
-                                                                        self.mass_2, 
-                                                                        self.spectrum_number)
-                    else:
-                        print(f"file {ifile} has an error, skipping")
-                        self.analyzed.append(ifile)
-                        self.files.append(raw_file)
-                        to_analyze.append("error")
-        return to_analyze
+class LiveView(Watcher, RawFileCollection):
+    
+    def __init__(self, path='.', delay=1, interpolation='cubic', factor=2):
+        self.path = path
+        self.delay = delay
+        self.interpolation=interpolation
+        self.factor=factor
+        super(LiveView, self).__init__(path)
 
 
