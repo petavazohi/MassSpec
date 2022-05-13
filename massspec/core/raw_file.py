@@ -14,7 +14,7 @@ class RawFile(object):  # need a better name
         self.data_avg = None
         self.functions = []
         self.interpolated_data = []
-        self.has_error=True
+        self.has_error=False
         self._get_data()
         if not self.has_error:
             self._get_interpolated(interpolation, factor)
@@ -24,9 +24,11 @@ class RawFile(object):  # need a better name
             ms_file = MSFileReader(self.filename.as_posix())
         except:
             print(f"Can not open {self.filename}")
-            return
+            self.has_error = True
+            return 
         if ms_file.GetNumSpectra() == 0:
             print(f"{self.filename} does not contain data")
+            self.has_error = True
             return
         for ispectrum in range(1, ms_file.GetNumSpectra() + 1):
             self.data.append(np.array(ms_file.GetMassListFromScanNum(ispectrum)[0]).T)
@@ -119,11 +121,14 @@ class RawFile(object):  # need a better name
 class RawFileCollection(object):
     def __init__(self, path='.', interpolation='cubic', factor=2):
         self.path = Path(path)
+        self.ratio = False
         self.interpolation = interpolation
         self.factor = factor
         self._data_avg = []
         self._data = []
         self.files = []
+        self.nfiles = 0
+        self.dt = 1
         self.parse()
         
     def parse(self):
@@ -132,9 +137,11 @@ class RawFileCollection(object):
             if fname.suffix == '.raw':
                 raw_file = RawFile(fname, interpolation=self.interpolation, factor=self.factor)
                 self.add_file(raw_file)
-                
+                if not raw_file.has_error:
+                    self.nfiles += 1
+
     def add_file(self, raw_file):
-        if raw_file.data_avg  is not None:
+        if raw_file.data_avg is not None:
             if self._data_avg is None:
                 self._data_avg.append(raw_file.data_avg) 
                 self._data.append(raw_file.data)
@@ -142,7 +149,7 @@ class RawFileCollection(object):
                 self._data_avg.append(raw_file.data_avg)
                 self._data.append(raw_file.data)
             self.files.append(raw_file.filename.name)
-                
+
     @property    
     def data_avg(self):
         return self._data_avg
@@ -163,3 +170,40 @@ class RawFileCollection(object):
                 worksheet.write_column(2, iscan*2, d[:, 0])
                 worksheet.write_column(2, iscan*2 + 1, d[:, 1])
         return
+
+    def init_plot(self):
+        self.fig = plt.figure(figsize=(16, 9))
+        if self.ratio:
+            self.ax_spectra = self.fig.add_subplot(121, projection="3d")
+            self.ax_drops = self.fig.add_subplot(122)   
+            self.ax_drops.set_xlim(-0.5, self.ncol-0.5)
+            self.ax_drops.set_ylim(-0.5, self.nrow-0.5)
+            self.ax_drops.set_facecolor('red')
+        else:
+            self.ax_spectra = self.fig.add_subplot(111, projection="3d")
+        self.ax_spectra.view_init(elev=10, azim=60)
+        self.ax_spectra.set_xlabel("m/z", fontsize=18)
+        self.ax_spectra.set_ylabel("Spectra Number", fontsize=18)
+        self.ax_spectra.set_zlabel("Intensity", fontsize=18)
+
+    def plot(self):
+        self.init_plot()
+        for i in range(self.nfiles):
+            self.update(i)
+        plt.show()
+
+    def update(self, i):
+        for i in range(self.nfiles):
+            x = self.data_avg[i][:, 0]
+            y = [i * self.dt] * len(x)
+            z = self.data_avg[i][:, 1]
+            self.ax_spectra.plot(x, y, z, color='black')
+        # print(i, 'trying to plot')
+        # if self.ratio:
+        #     self.ax_drops.imshow(self.ratios, cmap='Greys')
+        #     if (len(self.files)-1)%self.ncol == 0 :
+        #         self.ax_spectra.cla()
+        
+        # self.fig.canvas.draw()
+        # self.fig.canvas.flush_events()
+        # plt.close(self.fig)    
