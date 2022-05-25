@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import re
 from turtle import color
 from pymsfilereader import MSFileReader
 import numpy as np
@@ -150,13 +151,13 @@ class RawFileCollection(object):
 
 
     def parse(self):
-        files = [self.path.joinpath(x) for x in os.listdir(self.path)]
-        for fname in sorted(files, key=lambda x: x.name):
-            if fname.suffix == '.raw':
-                raw_file = RawFile(fname, interpolation=self.interpolation, factor=self.factor)
-                self.add_file(raw_file)
-                if not raw_file.has_error:
-                    self.nfiles += 1
+        files = [x for x in self.path.iterdir()]
+        sort_dict = {int(re.findall("([0-9]+)", x.name)[0]):x for x in files if '.raw' in x.name}
+        for ix in sorted(sort_dict):
+            raw_file = RawFile(sort_dict[ix], interpolation=self.interpolation, factor=self.factor)
+            self.add_file(raw_file)
+            if not raw_file.has_error:
+                self.nfiles += 1
 
     def add_file(self, raw_file):
         if raw_file.data_avg is not None:
