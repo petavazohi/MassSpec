@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 import os
+from turtle import color
 from pymsfilereader import MSFileReader
 import numpy as np
 import matplotlib.pylab as plt
 from scipy.interpolate import interp1d
 import xlsxwriter
 from pathlib import Path
+from datetime import date
+
+colors = ['red', 'blue', 'green', 'cyan', 'magenta']
+today = date.today()
 
 class RawFile(object):  # need a better name
     def __init__(self, filename, interpolation='cubic', factor=2):
@@ -106,9 +111,16 @@ class RawFile(object):  # need a better name
         return self.data[0].shape[0]
     
     def to_excel(self,
-                output_path="data.xlsx", 
+                output_path=f"{today.strftime('%Y%m%d')}.xlsx", 
                 average=True):
-        with xlsxwriter.Workbook(output_path) as workbook:
+        
+        path = Path(output_path)
+        c = 1
+        while path.exists():
+            mod = f"{path.stem}-Run{c}{path.suffix}"
+            path = path.parent / mod
+            c += 1
+        with xlsxwriter.Workbook(output_path.as_posix()) as workbook:
             sheet_name = f"Avg spectrum"
             worksheet = workbook.add_worksheet(sheet_name)
             worksheet.write(0, 0, "m/z")
@@ -119,7 +131,7 @@ class RawFile(object):  # need a better name
 
 
 class RawFileCollection(object):
-    def __init__(self, path='.', interpolation='cubic', factor=2):
+    def __init__(self, path='.', interpolation='cubic', factor=2, track_mass=None, delta_mz=3, dmz=0.2):
         self.path = Path(path)
         self.ratio = False
         self.interpolation = interpolation
@@ -127,10 +139,16 @@ class RawFileCollection(object):
         self._data_avg = []
         self._data = []
         self.files = []
+        self.track_area = []
+        self.total_area = []
         self.nfiles = 0
         self.dt = 1
+        self.track_mass = track_mass
+        self.delta_mz = delta_mz
+        self.dmz = dmz
         self.parse()
-        
+
+
     def parse(self):
         files = [self.path.joinpath(x) for x in os.listdir(self.path)]
         for fname in sorted(files, key=lambda x: x.name):
@@ -145,12 +163,18 @@ class RawFileCollection(object):
             if self._data_avg is None:
                 self._data_avg.append(raw_file.data_avg) 
                 self._data.append(raw_file.data)
-            else:
-                self._data_avg.append(raw_file.data_avg)
+            else :
+                self._data_avg.append(raw_file.data_avg) 
                 self._data.append(raw_file.data)
+            if self.track_mass is not None:
+                cond1 = raw_file.data_avg[:,0] > self.track_mass - self.delta_mz
+                cond2 = raw_file.data_avg[:,0] < self.track_mass + self.delta_mz
+                cond = np.bitwise_and(cond1, cond2)
+                self.track_area.append(np.trapz(raw_file.data_avg[cond, 1], dx=self.dmz))
+                self.total_area.append(np.trapz(raw_file.data_avg[:, 1], dx=self.dmz))
             self.files.append(raw_file.filename.name)
 
-    @property    
+    @property
     def data_avg(self):
         return self._data_avg
     
@@ -159,8 +183,15 @@ class RawFileCollection(object):
         return self._data
 
     def to_excel(self,
-                 output_path="data.xlsx"):
-        with xlsxwriter.Workbook(output_path) as workbook:
+                 output_path=f"{today.strftime('%Y%m%d')}-Run1.xlsx"):
+        path = Path(output_path)
+        c = 2
+        while path.exists():
+            mod = f"{path.stem[:-1]}{c}{path.suffix}"
+            # might need to change :-1 for double digits
+            path = path.parent / mod
+            c += 1
+        with xlsxwriter.Workbook(path.as_posix()) as workbook:
             sheet_name = "Avg spectrum"
             worksheet = workbook.add_worksheet(sheet_name)
             for iscan, d in enumerate(self.data_avg):
@@ -169,11 +200,24 @@ class RawFileCollection(object):
                 worksheet.write(1, iscan*2 + 1, "Intensity")
                 worksheet.write_column(2, iscan*2, d[:, 0])
                 worksheet.write_column(2, iscan*2 + 1, d[:, 1])
+            if self.track_mass is not None:
+                worksheet_track_mass = workbook.add_worksheet(f"Integrated {self.track_mass} m-z ")
+                worksheet_track_mass.write(0, 0, "Scan number")
+                worksheet_track_mass.write(0, 1, f"{self.track_mass} Count")
+                worksheet_track_mass.write(0, 2, "Total Count")
+                worksheet_track_mass.write_column(1, 0, np.arange(1, self.nfiles+1))
+                worksheet_track_mass.write_column(1, 1, np.array(self.track_area))
+                worksheet_track_mass.write_column(1, 2, np.array(self.total_area))
         return
 
     def init_plot(self):
         self.fig = plt.figure(figsize=(16, 9))
-        if self.ratio:
+        if self.track_mass:
+            self.ax_spectra = self.fig.add_subplot(121, projection="3d")
+            self.ax_track_mass = self.fig.add_subplot(122)
+            # self.ax_track_mass.set_xlim(0,)
+            # self.ax_track_mass.set_ylim(0,)
+        elif self.ratio:
             self.ax_spectra = self.fig.add_subplot(121, projection="3d")
             self.ax_drops = self.fig.add_subplot(122)   
             self.ax_drops.set_xlim(-0.5, self.ncol-0.5)
@@ -190,14 +234,29 @@ class RawFileCollection(object):
         self.init_plot()
         for i in range(self.nfiles):
             self.update(i)
+        self.ax_track_mass.plot(np.arange(1, self.nfiles + 1), 
+                                self.track_area, color='blue', 
+                                label=f'Inegrated {self.track_mass-self.delta_mz}-{self.track_mass+self.delta_mz}')
+        self.ax_track_mass.scatter(np.arange(1, self.nfiles + 1), 
+                               self.total_area, facecolors='none', edgecolor='red',
+                               label='Total Count', marker='o')
+        self.ax_track_mass.set_xticks(np.arange(1, self.nfiles + 1, 2))
+        self.ax_track_mass.grid(True)
+        self.ax_track_mass.set_ylim(0, )
+        self.ax_track_mass.set_xlim(1, self.nfiles)
+        self.ax_track_mass.set_xlabel("Scan number")
+        plt.legend()
+        self.ax_track_mass.set_ylabel("Count")
         plt.show()
 
     def update(self, i):
-        for i in range(self.nfiles):
-            x = self.data_avg[i][:, 0]
-            y = [i * self.dt] * len(x)
-            z = self.data_avg[i][:, 1]
-            self.ax_spectra.plot(x, y, z, color='black')
+        x = self.data_avg[i][:, 0]
+        y = [i * self.dt] * len(x)
+        z = self.data_avg[i][:, 1]
+        self.ax_spectra.plot(x, y, z, color=colors[i % 5])
+        # if self.track_mass is not None:
+        #     self.ax_track_mass.plot(i, self.track_area[i])
+                
         # print(i, 'trying to plot')
         # if self.ratio:
         #     self.ax_drops.imshow(self.ratios, cmap='Greys')
@@ -207,3 +266,6 @@ class RawFileCollection(object):
         # self.fig.canvas.draw()
         # self.fig.canvas.flush_events()
         # plt.close(self.fig)    
+    
+
+        
