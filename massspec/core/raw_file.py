@@ -152,7 +152,7 @@ class RawFileCollection(object):
 
     def parse(self):
         files = [x for x in self.path.iterdir()]
-        sort_dict = {int(re.findall("([0-9]+)", x.name)[0]):x for x in files if '.raw' in x.name}
+        sort_dict = {int(re.findall("([0-9]+)", x.name)[0]):x for x in files if x.suffix.lower() == '.raw'}
         for ix in sorted(sort_dict):
             raw_file = RawFile(sort_dict[ix], interpolation=self.interpolation, factor=self.factor)
             self.add_file(raw_file)
