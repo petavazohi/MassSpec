@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import re
-from turtle import color
 from pymsfilereader import MSFileReader
 import numpy as np
 import matplotlib.pylab as plt
@@ -9,12 +8,17 @@ from scipy.interpolate import interp1d
 import xlsxwriter
 from pathlib import Path
 from datetime import date
+from typing import Union
+from scipy.signal import find_peaks
 
 colors = ['red', 'blue', 'green', 'cyan', 'magenta']
 today = date.today()
 
 class RawFile(object):  # need a better name
-    def __init__(self, filename, interpolation='cubic', factor=2):
+    def __init__(self, 
+                 filename: Union[str, Path], 
+                 interpolation: str='cubic', 
+                 factor: int=1):
         self.filename = Path(filename)
         self.data = []
         self.data_avg = None
@@ -56,7 +60,7 @@ class RawFile(object):  # need a better name
     def dt(self):
         return self._dt
 
-    def _get_interpolated(self, interpolation=None, factor=2):
+    def _get_interpolated(self, interpolation=None, factor=1):
         if interpolation is None:
             return 
         else :
@@ -79,7 +83,7 @@ class RawFile(object):  # need a better name
     def get_intensity(self, mass, spectrum_number):
         return self.functions[spectrum_number](mass)
     
-    def plot(self, average=True):
+    def plot(self, average=True, show=True):
         plt.figure(figsize=(13, 9))
         ax = plt.subplot(111)
         if not average:
@@ -97,15 +101,17 @@ class RawFile(object):  # need a better name
             xs = np.concatenate([x[:, 0] for x in self.data])
             ax.set_xlim(xs.min(), xs.max())
         else: 
-            plt.plot(self.interpolated_data_avg[:, 0], 
+            ax.plot(self.interpolated_data_avg[:, 0], 
                      self.interpolated_data_avg[:, 1], label="Interpolated", color='blue')
-            plt.plot(self.data_avg[:, 0], 
+            ax.plot(self.data_avg[:, 0], 
                      self.data_avg[:, 1], label="Original", color='red')
             ax.set_title("Averaged Spectra")
             ax.set_xlim(self.data_avg[:, 0].min(), self.data_avg[:, 0].max())
-        ax.set_ylim(0, )
+        ax.set_ylim(0,)
         ax.legend()
-        plt.show()
+        if show:
+            plt.show()
+        return ax
 
     @property
     def ndata(self):
@@ -184,7 +190,10 @@ class RawFileCollection(object):
         return self._data
 
     def to_excel(self,
-                 output_path=f"{today.strftime('%Y%m%d')}-Run1.xlsx"):
+                 output_path=f"{today.strftime('%Y%m%d')}-Run1.xlsx",
+                 reduce=False,
+                 peak_prominence=500,
+                 n_reduction=0):
         path = Path(output_path)
         c = 2
         while path.exists():
@@ -196,11 +205,16 @@ class RawFileCollection(object):
             sheet_name = "Avg spectrum"
             worksheet = workbook.add_worksheet(sheet_name)
             for iscan, d in enumerate(self.data_avg):
+                data = d
+                if reduce:
+                    for i in range(n_reduction):
+                        peaks, _ = find_peaks(data[:, 1], prominence=peak_prominence)
+                        data = data[peaks]
                 worksheet.write(0, iscan*2, f"{self.files[iscan]}")
                 worksheet.write(1, iscan*2, "m/z")
                 worksheet.write(1, iscan*2 + 1, "Intensity")
-                worksheet.write_column(2, iscan*2, d[:, 0])
-                worksheet.write_column(2, iscan*2 + 1, d[:, 1])
+                worksheet.write_column(2, iscan*2, data[:, 0])
+                worksheet.write_column(2, iscan*2 + 1, data[:, 1])
             if self.track_mass is not None:
                 worksheet_track_mass = workbook.add_worksheet(f"Integrated {self.track_mass} m-z ")
                 worksheet_track_mass.write(0, 0, "Scan number")
