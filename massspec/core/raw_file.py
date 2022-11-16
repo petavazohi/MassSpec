@@ -27,6 +27,7 @@ class RawFile(object):  # need a better name
         self.data_avg = None
         self.functions = []
         self.interpolated_data = []
+        self.header = []
         self.has_error=False
         self._get_data()
         self.interpolate = interpolate
@@ -46,14 +47,15 @@ class RawFile(object):  # need a better name
             return
         for ispectrum in range(1, ms_file.GetNumSpectra() + 1):
             self.data.append(np.array(ms_file.GetMassListFromScanNum(ispectrum)[0]).T)
+            self.header.append(ms_file.GetScanHeaderInfoForScanNum(ispectrum))
         self._nspectra = ms_file.GetNumSpectra()
         self.average_spectrum = np.array(ms_file.GetAveragedMassSpectrum(
             list(range(1,self._nspectra+1)))[0]).T
-        self._dt = (ms_file.GetEndTime() - ms_file.GetStartTime()) / self._nspectra
+
         self.mass_resolution = ms_file.MassResolution
         self.data_avg = np.array(ms_file.GetAverageMassList(1,self._nspectra)[0]).T
         ms_file.Close()
-        self.data = np.array(self.data)
+        # self.data = np.array(self.data)
         self.has_error=False
 
     @property
@@ -79,7 +81,6 @@ class RawFile(object):  # need a better name
         x = np.linspace(self.data_avg[:, 0].min(), self.data_avg[:, 0].max(), self.data_avg.shape[0]*factor)
         y = func(x)
         self.interpolated_data_avg = np.array([x, y]).T
-
 
     def get_ratio(self, mass_1, mass_2, spectrum_number):
         return self.get_intensity(mass_1, spectrum_number)/self.get_intensity(mass_2, spectrum_number)
@@ -138,23 +139,30 @@ class RawFile(object):  # need a better name
     
     def to_excel(self,
                 output_path=f"{today.strftime('%Y%m%d')}.xlsx", 
-                average=True):
+                decimals=2,
+                overwrite=False):
         path = Path(output_path)
         c = 1
-        while path.exists():
+        while path.exists() and not overwrite:
             mod = f"{path.stem}-Run{c}{path.suffix}"
             path = path.parent / mod
             c += 1
+            
         with xlsxwriter.Workbook(path.as_posix()) as workbook:
             if self.filename.stat().st_size//2**20 > 50:
                 workbook.use_zip64()
+            num_format = workbook.add_format({'num_format': '0.'+'0'*decimals})
             sheet_name = "Spectra"
             worksheet = workbook.add_worksheet(sheet_name)
             for i_spec, spectrum in enumerate(self.data):
                 worksheet.write(0, i_spec*2, f"Spectrum {i_spec + 1} m/z")
-                worksheet.write(0, i_spec*2+1, f"Spectrum {i_spec + 1} Intensity")
-                worksheet.write_column(1, i_spec*2, spectrum[:, 0])
-                worksheet.write_column(1, i_spec*2+1, spectrum[:, 1])
+                worksheet.write(0, i_spec*2+1, 
+                                f"Spectrum {i_spec + 1} Intensity")
+                worksheet.write(1, i_spec*2, 
+                                self.header[i_spec]['StartTime'], 
+                                num_format)
+                worksheet.write_column(2, i_spec*2, spectrum[:, 0], num_format)
+                worksheet.write_column(2, i_spec*2+1, spectrum[:, 1], num_format)
             sheet_name = "Average"
             worksheet = workbook.add_worksheet(sheet_name)
             worksheet.write(0, 0, "m/z")
@@ -165,7 +173,7 @@ class RawFile(object):  # need a better name
 
     def to_dict(self):
         ret = {}
-        for attr in ['data', 'data_avg', 'dt']:
+        for attr in ['data', 'data_avg', 'header']:
             ret[attr] = getattr(self, attr)
         return ret
     
