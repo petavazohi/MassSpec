@@ -21,7 +21,7 @@ class RawFile(object):  # need a better name
                  interpolation_type: str = 'cubic', 
                  factor: int=1):
         self.filename = Path(filename)
-        if not Path.exists():
+        if not self.filename.exists():
             raise Exception(f'File {self.filename} does not exist.')            
         self.data = []
         self.data_avg = None
@@ -146,6 +146,8 @@ class RawFile(object):  # need a better name
             path = path.parent / mod
             c += 1
         with xlsxwriter.Workbook(path.as_posix()) as workbook:
+            if self.filename.stat().st_size//2**20 > 50:
+                workbook.use_zip64()
             sheet_name = "Spectra"
             worksheet = workbook.add_worksheet(sheet_name)
             for i_spec, spectrum in enumerate(self.data):
