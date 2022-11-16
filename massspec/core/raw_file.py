@@ -21,6 +21,8 @@ class RawFile(object):  # need a better name
                  interpolation_type: str = 'cubic', 
                  factor: int=1):
         self.filename = Path(filename)
+        if not Path.exists():
+            raise Exception(f'File {self.filename} does not exist.')            
         self.data = []
         self.data_avg = None
         self.functions = []
@@ -51,7 +53,7 @@ class RawFile(object):  # need a better name
         self.mass_resolution = ms_file.MassResolution
         self.data_avg = np.array(ms_file.GetAverageMassList(1,self._nspectra)[0]).T
         ms_file.Close()
-        self.data = self.data
+        self.data = np.array(self.data)
         self.has_error=False
 
     @property
