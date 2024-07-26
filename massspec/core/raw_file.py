@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
 import re
 from pymsfilereader import MSFileReader
 import numpy as np
@@ -10,24 +9,30 @@ from pathlib import Path
 from datetime import date
 from typing import Union
 from scipy.signal import find_peaks
+from scipy.io import savemat
 
 colors = ['red', 'blue', 'green', 'cyan', 'magenta']
 today = date.today()
 
 class RawFile(object):  # need a better name
     def __init__(self, 
-                 filename: Union[str, Path], 
-                 interpolation: str='cubic', 
+                 filename: Union[str, Path],
+                 interpolate: bool=False,
+                 interpolation_type: str = 'cubic', 
                  factor: int=1):
         self.filename = Path(filename)
+        if not self.filename.exists():
+            raise Exception(f'File {self.filename} does not exist.')            
         self.data = []
         self.data_avg = None
         self.functions = []
         self.interpolated_data = []
+        self.header = []
         self.has_error=False
         self._get_data()
-        if not self.has_error:
-            self._get_interpolated(interpolation, factor)
+        self.interpolate = interpolate
+        if interpolate and not self.has_error:
+            self._get_interpolated(interpolation_type, factor)
         
     def _get_data(self):
         try:
@@ -42,14 +47,15 @@ class RawFile(object):  # need a better name
             return
         for ispectrum in range(1, ms_file.GetNumSpectra() + 1):
             self.data.append(np.array(ms_file.GetMassListFromScanNum(ispectrum)[0]).T)
+            self.header.append(ms_file.GetScanHeaderInfoForScanNum(ispectrum))
         self._nspectra = ms_file.GetNumSpectra()
         self.average_spectrum = np.array(ms_file.GetAveragedMassSpectrum(
             list(range(1,self._nspectra+1)))[0]).T
-        self._dt = (ms_file.GetEndTime() - ms_file.GetStartTime()) / self._nspectra
+
         self.mass_resolution = ms_file.MassResolution
         self.data_avg = np.array(ms_file.GetAverageMassList(1,self._nspectra)[0]).T
         ms_file.Close()
-        self.data = np.array(self.data)
+        # self.data = np.array(self.data)
         self.has_error=False
 
     @property
@@ -76,7 +82,6 @@ class RawFile(object):  # need a better name
         y = func(x)
         self.interpolated_data_avg = np.array([x, y]).T
 
-
     def get_ratio(self, mass_1, mass_2, spectrum_number):
         return self.get_intensity(mass_1, spectrum_number)/self.get_intensity(mass_2, spectrum_number)
 
@@ -84,7 +89,7 @@ class RawFile(object):  # need a better name
         return self.functions[spectrum_number](mass)
     
     def plot(self, average=True, show=True):
-        plt.figure(figsize=(13, 9))
+        plt.figure(figsize=(9, 6))
         ax = plt.subplot(111)
         if not average:
             for ispectrum, spec in enumerate(self.data):
@@ -93,25 +98,40 @@ class RawFile(object):  # need a better name
                     spec[:, 1],
                     label=f"Original Spectrum-{ispectrum + 1}",
                 )
-                ax.plot(
-                    self.interpolated_data[ispectrum][:, 0],
-                    self.interpolated_data[ispectrum][:, 1],
-                    label=f"Interpolated Spectrum-{ispectrum + 1}",
-                )
+                if self.interpolate:
+                    ax.plot(
+                        self.interpolated_data[ispectrum][:, 0],
+                        self.interpolated_data[ispectrum][:, 1],
+                        label=f"Interpolated Spectrum-{ispectrum + 1}",
+                    )
             xs = np.concatenate([x[:, 0] for x in self.data])
             ax.set_xlim(xs.min(), xs.max())
-        else: 
-            ax.plot(self.interpolated_data_avg[:, 0], 
-                     self.interpolated_data_avg[:, 1], label="Interpolated", color='blue')
+        else:
+            if self.interpolate:
+                ax.plot(self.interpolated_data_avg[:, 0], 
+                        self.interpolated_data_avg[:, 1], label="Interpolated", color='blue')
             ax.plot(self.data_avg[:, 0], 
-                     self.data_avg[:, 1], label="Original", color='red')
+                    self.data_avg[:, 1], label="Original", color='red')
             ax.set_title("Averaged Spectra")
             ax.set_xlim(self.data_avg[:, 0].min(), self.data_avg[:, 0].max())
         ax.set_ylim(0,)
-        ax.legend()
+        ax.set_xlabel("m/z")
+        ax.set_ylabel("Intensity")
+        plt.tight_layout()
+        if self.nspectra < 5:
+            ax.legend()
         if show:
             plt.show()
         return ax
+
+    def reduce(self,
+               peak_prominence=500):
+        for i_spec, spectrum in enumerate(self.data):        
+            peaks, _ = find_peaks(spectrum[:, 1], prominence=peak_prominence)
+            self.data[i_spec] = spectrum[peaks]
+        peaks, _ = find_peaks(self.data_avg[:, 1], prominence=peak_prominence)
+        self.data_avg = self.data_avg[peaks]
+        return 
 
     @property
     def ndata(self):
@@ -119,16 +139,31 @@ class RawFile(object):  # need a better name
     
     def to_excel(self,
                 output_path=f"{today.strftime('%Y%m%d')}.xlsx", 
-                average=True):
-        
+                decimals=2,
+                overwrite=False):
         path = Path(output_path)
         c = 1
-        while path.exists():
+        while path.exists() and not overwrite:
             mod = f"{path.stem}-Run{c}{path.suffix}"
             path = path.parent / mod
             c += 1
-        with xlsxwriter.Workbook(output_path.as_posix()) as workbook:
-            sheet_name = f"Avg spectrum"
+            
+        with xlsxwriter.Workbook(path.as_posix()) as workbook:
+            if self.filename.stat().st_size//2**20 > 50:
+                workbook.use_zip64()
+            num_format = workbook.add_format({'num_format': '0.'+'0'*decimals})
+            sheet_name = "Spectra"
+            worksheet = workbook.add_worksheet(sheet_name)
+            for i_spec, spectrum in enumerate(self.data):
+                worksheet.write(0, i_spec*2, f"Spectrum {i_spec + 1} m/z")
+                worksheet.write(0, i_spec*2+1, 
+                                f"Spectrum {i_spec + 1} Intensity")
+                worksheet.write(1, i_spec*2, 
+                                self.header[i_spec]['StartTime'], 
+                                num_format)
+                worksheet.write_column(2, i_spec*2, spectrum[:, 0], num_format)
+                worksheet.write_column(2, i_spec*2+1, spectrum[:, 1], num_format)
+            sheet_name = "Average"
             worksheet = workbook.add_worksheet(sheet_name)
             worksheet.write(0, 0, "m/z")
             worksheet.write(0, 1, "Intensity")
@@ -136,6 +171,17 @@ class RawFile(object):  # need a better name
             worksheet.write_column(1, 1, self.data_avg[:, 1])
         return 
 
+    def to_dict(self):
+        ret = {}
+        for attr in ['data', 'data_avg', 'header']:
+            ret[attr] = getattr(self, attr)
+        return ret
+    
+    def to_matlab(self, filename='matlab_out.mat'):
+        savemat(filename, self.to_dict())
+        return
+        
+        
 
 class RawFileCollection(object):
     def __init__(self, path='.', interpolation='cubic', factor=2, track_mass=None, delta_mz=3, dmz=0.2):
