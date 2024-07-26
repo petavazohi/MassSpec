@@ -138,7 +138,8 @@ class RawFile(object):  # need a better name
         return self.data[0].shape[0]
     
     def to_excel(self,
-                output_path=f"{today.strftime('%Y%m%d')}.xlsx", 
+                output_path=f"{today.strftime('%Y%m%d')}.xlsx",
+                rounding=False, 
                 decimals=2,
                 overwrite=False):
         path = Path(output_path)
@@ -151,7 +152,10 @@ class RawFile(object):  # need a better name
         with xlsxwriter.Workbook(path.as_posix()) as workbook:
             if self.filename.stat().st_size//2**20 > 50:
                 workbook.use_zip64()
-            num_format = workbook.add_format({'num_format': '0.'+'0'*decimals})
+            if rounding:
+                num_format = workbook.add_format({'num_format': '0.'+'0'*decimals})
+            else:
+                num_format = None
             sheet_name = "Spectra"
             worksheet = workbook.add_worksheet(sheet_name)
             for i_spec, spectrum in enumerate(self.data):
